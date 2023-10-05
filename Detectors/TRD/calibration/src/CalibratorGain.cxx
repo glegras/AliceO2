@@ -117,7 +117,8 @@ void CalibratorGain::finalizeSlot(Slot& slot)
     int nNonZeroBin = 0;
     for (int iBin = 0; iBin < NBINSGAINCALIB; ++iBin) {
       int value = dEdxHists->getHistogramEntry(iDet * NBINSGAINCALIB + iBin);
-      if (value != 0) nNonZeroBin++;
+      if (value != 0)
+        nNonZeroBin++;
       nEntries += value;
       mdEdxhists[iDet]->SetBinContent(iBin + 1, value);
       mdEdxhists[iDet]->SetBinError(iBin + 1, sqrt(value));
