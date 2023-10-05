@@ -114,14 +114,22 @@ void CalibratorGain::finalizeSlot(Slot& slot)
   for (int iDet = 0; iDet < MAXCHAMBER; ++iDet) {
     mdEdxhists[iDet]->Reset();
     int nEntries = 0;
+    int nNonZeroBin = 0;
     for (int iBin = 0; iBin < NBINSGAINCALIB; ++iBin) {
-      nEntries += dEdxHists->getHistogramEntry(iDet * NBINSGAINCALIB + iBin);
-      mdEdxhists[iDet]->SetBinContent(iBin + 1, dEdxHists->getHistogramEntry(iDet * NBINSGAINCALIB + iBin));
-      mdEdxhists[iDet]->SetBinError(iBin + 1, sqrt(dEdxHists->getHistogramEntry(iDet * NBINSGAINCALIB + iBin)));
+      int value = dEdxHists->getHistogramEntry(iDet * NBINSGAINCALIB + iBin);
+      if (value != 0) nNonZeroBin++;
+      nEntries += value;
+      mdEdxhists[iDet]->SetBinContent(iBin + 1, value);
+      mdEdxhists[iDet]->SetBinError(iBin + 1, sqrt(value));
     }
+
     // Check if we have the minimum amount of entries
     if (nEntries < mMinEntriesChamber) {
       LOGF(debug, "Chamber %d did not reach minimum amount of %d entries for refit", iDet, mMinEntriesChamber);
+      continue;
+    }
+    if (nNonZeroBin < 10) { // Do not fit distribution where there are enough counts, but all are in one or few bins (e.g. during SYNTHETICS)
+      LOGF(debug, "Chamber %d has too few bins with non-zero value", iDet);
       continue;
     }
     mdEdxhists[iDet]->Scale(1. / nEntries);
