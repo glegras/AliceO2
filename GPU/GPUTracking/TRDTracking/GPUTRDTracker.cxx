@@ -92,7 +92,7 @@ void* GPUTRDTracker_t<TRDTRK, PROP>::SetPointersTracks(void* base)
 }
 
 template <class TRDTRK, class PROP>
-GPUTRDTracker_t<TRDTRK, PROP>::GPUTRDTracker_t() : mR(nullptr), mIsInitialized(false), mGenerateSpacePoints(false), mProcessPerTimeFrame(false), mNAngleHistogramBins(25), mAngleHistogramRange(50), mMemoryPermanent(-1), mMemoryTracklets(-1), mMemoryTracks(-1), mNMaxCollisions(0), mNMaxTracks(0), mNMaxSpacePoints(0), mTracks(nullptr), mTrackAttribs(nullptr), mNCandidates(1), mNTracks(0), mNEvents(0), mMaxBackendThreads(100), mTrackletIndexArray(nullptr), mHypothesis(nullptr), mCandidates(nullptr), mSpacePoints(nullptr), mGeo(nullptr), mRPhiA2(0), mRPhiB(0), mRPhiC2(0), mDyA2(0), mDyB(0), mDyC2(0), mAngleToDyA(0), mAngleToDyB(0), mAngleToDyC(0), mDebugOutput(false), mMaxEta(0.84f), mRoadZ(18.f), mZCorrCoefNRC(1.4f), mTPCVdrift(2.58f), mTPCTDriftOffset(0.f), mDebug(new GPUTRDTrackerDebug<TRDTRK>())
+GPUTRDTracker_t<TRDTRK, PROP>::GPUTRDTracker_t() : mR(nullptr), mIsInitialized(false), mGenerateSpacePoints(false), mProcessPerTimeFrame(false), mNAngleHistogramBins(25), mAngleHistogramRange(50), mMemoryPermanent(-1), mMemoryTracklets(-1), mMemoryTracks(-1), mNMaxCollisions(0), mNMaxTracks(0), mNMaxSpacePoints(0), mTracks(nullptr), mTrackAttribs(nullptr), mNCandidates(1), mNTracks(0), mNEvents(0), mMaxBackendThreads(100), mTrackletIndexArray(nullptr), mHypothesis(nullptr), mCandidates(nullptr), mSpacePoints(nullptr), mGeo(nullptr), mRPhiA2(0), mRPhiB(0), mRPhiC2(0), mDyA2(0), mDyB(0), mDyC2(0), mAngleToDyA(0), mAngleToDyB(0), mAngleToDyC(0), mCorrYDy(0), mDebugOutput(false), mMaxEta(0.84f), mRoadZ(18.f), mZCorrCoefNRC(1.4f), mTPCVdrift(2.58f), mTPCTDriftOffset(0.f), mDebug(new GPUTRDTrackerDebug<TRDTRK>())
 {
   //--------------------------------------------------------------------
   // Default constructor
@@ -139,7 +139,7 @@ void GPUTRDTracker_t<TRDTRK, PROP>::UpdateGeometry()
     if (Bz > 0) {
       GPUInfo("Loading error parameterization for Bz = +2 kG");
       mRPhiA2 = resRPhiIdeal2, mRPhiB = -1.43e-2f, mRPhiC2 = 4.55e-2f;
-      mDyA2 = 1.225e-3f, mDyB = -9.8e-3f, mDyC2 = 3.88e-2f;
+      mDyA2 = 1.225e-3f, mDyB = -9.8e-3f, mDyC2 = 3.88e-2f; //TODO: update param also for low field
       mAngleToDyA = -0.1f, mAngleToDyB = 1.89f, mAngleToDyC = -0.4f;
     } else {
       GPUInfo("Loading error parameterization for Bz = -2 kG");
@@ -152,12 +152,14 @@ void GPUTRDTracker_t<TRDTRK, PROP>::UpdateGeometry()
     if (Bz > 0) {
       GPUInfo("Loading error parameterization for Bz = +5 kG");
       mRPhiA2 = resRPhiIdeal2, mRPhiB = 0.125f, mRPhiC2 = 0.0961f;
-      mDyA2 = 1.681e-3f, mDyB = 0.15f, mDyC2 = 0.1849f;
+      //mDyA2 = 1.681e-3f, mDyB = 0.15f, mDyC2 = 0.1849f;
+      mDyA2 = 7.8e-3f, mDyB = 0.11f, mDyC2 = 0.29f;
       mAngleToDyA = 0.13f, mAngleToDyB = 2.43f, mAngleToDyC = -0.58f;
     } else {
       GPUInfo("Loading error parameterization for Bz = -5 kG");
       mRPhiA2 = resRPhiIdeal2, mRPhiB = -0.14f, mRPhiC2 = 0.1156f;
-      mDyA2 = 2.209e-3f, mDyB = -0.15f, mDyC2 = 0.2025f;
+      //mDyA2 = 2.209e-3f, mDyB = -0.15f, mDyC2 = 0.2025f;
+      mDyA2 = 9.1e-3f, mDyB = -0.14f, mDyC2 = 0.35f;
       mAngleToDyA = -0.15f, mAngleToDyB = 2.34f, mAngleToDyC = 0.56f;
     }
   } else {
@@ -166,6 +168,8 @@ void GPUTRDTracker_t<TRDTRK, PROP>::UpdateGeometry()
     GPUWarning("No error parameterization available for Bz = %.2f kG. Keeping default value (sigma_y = const. = 1cm)", Bz);
     mRPhiA2 = 1.f;
   }
+  // Covariance matrix with dy used in chi2
+  mCorrYDy = 0.15; // TODO: better understanding of this parameter + dependence on phi, run, bz, ...
 
   // obtain average radius of TRD chambers
   float x0[kNLayers] = {300.2f, 312.8f, 325.4f, 338.0f, 350.6f, 363.2f}; // used as default value in case no transformation matrix can be obtained
@@ -243,6 +247,9 @@ void GPUTRDTracker_t<TRDTRK, PROP>::PrepareTracking(GPUChainTracking* chainTrack
     chainTracking->mIOPtrs.trdSpacePoints = mSpacePoints;
   }
   mNEvents++;
+  
+  covTrklt3 = o2::math_utils::detail::SMatrixGPU<float,3>();
+  test = o2::math_utils::detail::SMatrixGPU<float,3>();
 }
 
 template <class TRDTRK, class PROP>
@@ -615,9 +622,11 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
           prop->getPropagatedYZ(spacePoints[trkltIdx].getX(), projY, projZ);
           // correction for tilted pads (only applied if deltaZ < lPad && track z err << lPad)
           float tiltCorr = tilt * (spacePoints[trkltIdx].getZ() - projZ);
+          float dyTiltCorr = tilt * trkWork->getTgl() * mGeo->GetCdrHght();
           float lPad = pad->GetRowSize(tracklets[trkltIdx].GetZbin());
           if (!((CAMath::Abs(spacePoints[trkltIdx].getZ() - projZ) < lPad) && (trkWork->getSigmaZ2() < (lPad * lPad / 12.f)))) {
             tiltCorr = 0.f; // will be zero also for TPC tracks which are shifted in z
+            dyTiltCorr = 0.f;
           }
           // correction for mean z position of tracklet (is not the center of the pad if track eta != 0)
           float zPosCorr = spacePoints[trkltIdx].getZ() + mZCorrCoefNRC * trkWork->getTgl();
@@ -626,13 +635,23 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
           float deltaY = yPosCorr - projY;
           float deltaZ = zPosCorr - projZ;
           float trkltPosTmpYZ[2] = {yPosCorr, zPosCorr};
-          float trkltCovTmp[3] = {0.f};
+          float trkltCovTmpWithDy[6] = {0.f};
           if ((CAMath::Abs(deltaY) < roadY) && (CAMath::Abs(deltaZ) < roadZ)) { // TODO: check if this is still necessary after the cut before propagation of track
             // tracklet is in windwow: get predicted chi2 for update and store tracklet index if best guess
-            RecalcTrkltCov(tilt, trkWork->getSnp(), pad->GetRowSize(tracklets[trkltIdx].GetZbin()), trkltCovTmp);
+            RecalcTrkltCov(tilt, trkWork->getSnp(), pad->GetRowSize(tracklets[trkltIdx].GetZbin()), trkltCovTmpWithDy, Param().rec.trd.addDeflectionInChi2);
+            float trkltCovTmp[3] = {trkltCovTmpWithDy[0], trkltCovTmpWithDy[1], trkltCovTmpWithDy[2]};
             float chi2 = prop->getPredictedChi2(trkltPosTmpYZ, trkltCovTmp);
+            if (Param().rec.trd.addDeflectionInChi2 && (trkWork->getSnp() < 1.f - 1e-6f) && (trkWork->getSnp() > -1.f + 1e-6f)) {
+              // we add the slope in the chi2 calculation
+              if (InvertCov(trkltCovTmpWithDy)) {
+                float deltaDy = spacePoints[trkltIdx].getDy() + dyTiltCorr - ConvertAngleToDy(trkWork->getSnp());
+                chi2 = deltaY * trkltCovTmpWithDy[0] * deltaY + 2 * deltaY * trkltCovTmpWithDy[1] * deltaZ + 2 * deltaY * trkltCovTmpWithDy[3] * deltaDy
+                     + deltaZ * trkltCovTmpWithDy[2] * deltaZ + 2 * deltaZ * trkltCovTmpWithDy[4] * deltaDy
+                     + deltaDy * trkltCovTmpWithDy[5] * deltaDy;
+              }
+            }
             // TODO cut on angular pull should be made stricter when proper v-drift calibration for the TRD tracklets is implemented
-            if ((chi2 > Param().rec.trd.maxChi2) || (Param().rec.trd.applyDeflectionCut && CAMath::Abs(GetAngularPull(spacePoints[trkltIdx].getDy(), trkWork->getSnp())) > 4)) {
+            if ((chi2 > Param().rec.trd.maxChi2) || (Param().rec.trd.applyDeflectionCut && CAMath::Abs(GetAngularPull(spacePoints[trkltIdx].getDy() + dyTiltCorr, trkWork->getSnp())) > 4)) {
               continue;
             }
             Hypothesis hypo(trkWork->getNlayersFindable(), iCandidate, trkltIdx, trkWork->getChi2() + chi2);
@@ -717,9 +736,10 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
         tiltCorrUp = 0.f;
       }
       float trkltPosUp[2] = {spacePoints[mHypothesis[iUpdate + hypothesisIdxOffset].mTrackletId].getY() - tiltCorrUp, zPosCorrUp};
-      float trkltCovUp[3] = {0.f};
-      RecalcTrkltCov(tilt, trkWork->getSnp(), pad->GetRowSize(tracklets[mHypothesis[iUpdate + hypothesisIdxOffset].mTrackletId].GetZbin()), trkltCovUp);
-
+      float trkltCovUpWithDy[6] = {0.f};
+      RecalcTrkltCov(tilt, trkWork->getSnp(), pad->GetRowSize(tracklets[mHypothesis[iUpdate + hypothesisIdxOffset].mTrackletId].GetZbin()), trkltCovUpWithDy, false);
+      float trkltCovUp[3] = {trkltCovUpWithDy[0], trkltCovUpWithDy[1], trkltCovUpWithDy[2]};
+      
 #ifdef ENABLE_GPUTRDDEBUG
       prop->setTrack(&trackNoUp);
       prop->rotate(GetAlphaOfSector(trkltSec));
@@ -959,7 +979,7 @@ GPUd() float GPUTRDTracker_t<TRDTRK, PROP>::GetAlphaOfSector(const int32_t sec) 
 }
 
 template <class TRDTRK, class PROP>
-GPUd() void GPUTRDTracker_t<TRDTRK, PROP>::RecalcTrkltCov(const float tilt, const float snp, const float rowSize, float (&cov)[3])
+GPUd() void GPUTRDTracker_t<TRDTRK, PROP>::RecalcTrkltCov(const float tilt, const float snp, const float rowSize, float (&cov)[6], bool withDy)
 {
   //--------------------------------------------------------------------
   // recalculate tracklet covariance taking track phi angle into account
@@ -972,11 +992,71 @@ GPUd() void GPUTRDTracker_t<TRDTRK, PROP>::RecalcTrkltCov(const float tilt, cons
   cov[0] = c2 * (sy2 + t2 * sz2);
   cov[1] = c2 * tilt * (sz2 - sy2);
   cov[2] = c2 * (t2 * sy2 + sz2);
+  
+  if (withDy) {
+    float sdy2 = GetAngularResolution(snp);
+    cov[3] = mCorrYDy * CAMath::Sqrt(sdy2 * c2 * sy2);
+    cov[4] = -tilt * mCorrYDy * CAMath::Sqrt(sdy2 * c2 * sy2);
+    cov[5] = sdy2;
+  }
+}
+
+template <class TRDTRK, class PROP>
+GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::InvertCov(float (&cov)[6]) {
+  // invert a 3*3 symmetric matrix. Adapted from https://root.cern.ch/doc/master/TMatrixTSymCramerInv_8cxx_source.html
+  
+  float c00 = cov[2] * cov[5] - cov[4] * cov[4];
+  float c01 = cov[4] * cov[3] - cov[1] * cov[5];
+  float c02 = cov[1] * cov[4] - cov[2] * cov[3];
+  float c11 = cov[5] * cov[0] - cov[3] * cov[3];
+  float c12 = cov[3] * cov[1] - cov[4] * cov[0];
+  float c22 = cov[0] * cov[2] - cov[1] * cov[1];
+ 
+  float t0  = CAMath::Abs(cov[0]);
+  float t1  = CAMath::Abs(cov[1]);
+  float t2  = CAMath::Abs(cov[3]);
+ 
+  float det;
+  float tmp;
+ 
+  if (t0 >= t1) {
+    if (t2 >= t0) {
+      tmp = cov[3];
+      det = c12*c01-c11*c02;
+    } else {
+      tmp = cov[0];
+      det = c11*c22-c12*c12;
+    }
+  } else if (t2 >= t1) {
+    tmp = cov[3];
+    det = c12*c01-c11*c02;
+  } else {
+    tmp = cov[1];
+    det = c02*c12-c01*c22;
+  }
+ 
+  if ( det == 0 || tmp == 0) {
+    return false;
+  }
+ 
+  float s = tmp/det;
+ 
+  cov[0] = s*c00;
+  cov[1] = s*c01;
+  cov[3] = s*c02;
+  cov[2] = s*c11;
+  cov[4] = s*c12;
+  cov[5] = s*c22;
+  
+  return true;
 }
 
 template <class TRDTRK, class PROP>
 GPUd() float GPUTRDTracker_t<TRDTRK, PROP>::GetAngularPull(float dYtracklet, float snp) const
 {
+  if (snp > 1.f - 1e-6f || snp < -1.f + 1e-6f) {
+    return 999.f;
+  }
   float dYtrack = ConvertAngleToDy(snp);
   float dYresolution = GetAngularResolution(snp);
   if (dYresolution < 1e-6f) {

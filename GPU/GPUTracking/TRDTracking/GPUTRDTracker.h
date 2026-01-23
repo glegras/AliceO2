@@ -26,6 +26,7 @@
 #include "GPULogging.h"
 #include "GPUTRDInterfaces.h"
 
+
 #ifndef GPUCA_GPUCODE_DEVICE
 #include <vector>
 #endif
@@ -116,9 +117,10 @@ class GPUTRDTracker_t : public GPUProcessor
   GPUd() float GetAlphaOfSector(const int32_t sec) const;
   GPUd() float GetRPhiRes(float snp) const { return (mRPhiA2 + mRPhiC2 * (snp - mRPhiB) * (snp - mRPhiB)); }           // parametrization obtained from track-tracklet residuals:
   GPUd() float GetAngularResolution(float snp) const { return mDyA2 + mDyC2 * (snp - mDyB) * (snp - mDyB); }           // a^2 + c^2 * (snp - b)^2
-  GPUd() float ConvertAngleToDy(float snp) const { return mAngleToDyA + mAngleToDyB * snp + mAngleToDyC * snp * snp; } // a + b*snp + c*snp^2 is more accurate than sin(phi) = (dy / xDrift) / sqrt(1+(dy/xDrift)^2)
+  GPUd() float ConvertAngleToDy(float snp) const { return 3.f * snp / sqrt(1 - snp * snp); } // when calibrated, sin(phi) = (dy / xDrift) / sqrt(1+(dy/xDrift)^2) works well
   GPUd() float GetAngularPull(float dYtracklet, float snp) const;
-  GPUd() void RecalcTrkltCov(const float tilt, const float snp, const float rowSize, float (&cov)[3]);
+  GPUd() void RecalcTrkltCov(const float tilt, const float snp, const float rowSize, float (&cov)[6], bool withDy = false);
+  GPUd() bool InvertCov(float (&cov)[6]);
   GPUd() void FindChambersInRoad(const TRDTRK* t, const float roadY, const float roadZ, const int32_t iLayer, int32_t* det, const float zMax, const float alpha, const float zShiftTrk) const;
   GPUd() bool IsGeoFindable(const TRDTRK* t, const int32_t layer, const float alpha, const float zShiftTrk) const;
   GPUd() void InsertHypothesis(Hypothesis hypo, int32_t& nCurrHypothesis, int32_t idxOffset);
@@ -184,6 +186,7 @@ class GPUTRDTracker_t : public GPUProcessor
   float mAngleToDyA; // parameterization for conversion track angle -> tracklet deflection
   float mAngleToDyB; // parameterization for conversion track angle -> tracklet deflection
   float mAngleToDyC; // parameterization for conversion track angle -> tracklet deflection
+  float mCorrYDy;    // correlation coefficient between tracklet position and tracklet deflection
   /// ---- end error parametrization ----
   bool mDebugOutput;                                  // store debug output
   static constexpr const float sRadialOffset = -0.1f; // due to (possible) mis-calibration of t0 -> will become obsolete when tracklet conversion is done outside of the tracker
