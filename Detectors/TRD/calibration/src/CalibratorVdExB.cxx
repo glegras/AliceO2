@@ -24,7 +24,7 @@
 #include "CCDB/BasicCCDBManager.h"
 #include "CommonUtils/NameConf.h"
 #include "CommonUtils/MemFileHelper.h"
-//#include "DetectorsBase/Propagator.h"
+// #include "DetectorsBase/Propagator.h"
 #include <TFile.h>
 #include <TTree.h>
 
@@ -109,14 +109,14 @@ void CalibratorVdExB::initProcessing()
   // fit is done in region where ion tails are small, close to lorentz angle
   // we want an approximate value of the lorentz angle in order to define better fit boundaries
   // TODO: find a way to obtain the magnetic field even in standalone calibration
-  //float bz = o2::base::Propagator::Instance()->getNominalBz();
+  // float bz = o2::base::Propagator::Instance()->getNominalBz();
   // default angle with zero field is slightly shifted
   float lorentzAngleAvg = -1.f;
   /*if (TMath::Abs(bz - 2) < 0.1f) { lorentzAngleAvg = 2.f;}
   if (TMath::Abs(bz + 2) < 0.1f) { lorentzAngleAvg = -4.f;}
   if (TMath::Abs(bz - 5) < 0.1f) { lorentzAngleAvg = 7.f;}
   if (TMath::Abs(bz + 5) < 0.1f) { lorentzAngleAvg = -9.5f;}
-  
+
   LOGP(info, "b field: {}  lorentz angle start: {}", bz, lorentzAngleAvg);*/
 
   mFitFunctor.lowerBoundAngleFit = (80 + lorentzAngleAvg) * TMath::DegToRad();
