@@ -49,6 +49,7 @@ class GPUTRDRecoParam
   GPUd() float getRPhiRes(float snp, float pull = 0.f, int occupancy = 0) const;
   GPUd() float getDyRes(float snp, int occupancy = 0) const { return mDyA2 + mDyC2 * (snp - mLorentzAngle) * (snp - mLorentzAngle) + mOccDyA * occupancy; } // a^2 + c^2 * (snp - b)^2
   GPUd() float convertAngleToDy(float snp) const { return 3.f * snp / CAMath::Sqrt(1 - snp * snp); }                                                        // when calibrated, sin(phi) = (dy / xDrift) / sqrt(1+(dy/xDrift)^2) works well
+  GPUd() float getDyLikelihood(float snp, float slope, int occupancy = 0) const;
   GPUd() float getCorrYDy() const { return mCorrYDy; }
   GPUd() float getPileUpProbTracklet(int nBC, bool withChargeInfo, bool Q0 = true, bool Q1 = true) const;
   GPUd() float getPileUpProbTrack(int nBC, std::array<int, 6> Q0, std::array<int, 6> Q1) const;
@@ -79,6 +80,11 @@ class GPUTRDRecoParam
   float mOccA{3.3e-4f};
   // error parametrization for dy vs occupancy defined as ntracklets within chamber (prop to sqrt(occupancy))
   float mOccDyA{2.5e-4f};
+  // slope likelihood parametrization with Gaussian core and left and right exponential tails
+  float mDyExpA{1.78f};
+  float mDyExpC{-1.65f};
+  float mDyExpNormA{1.96e-3f};
+  float mDyExpNormC{0.21f};
 
   float mZCorrCoefNRC{1.4f}; ///< tracklet z-position depends linearly on track dip angle
 
@@ -126,6 +132,28 @@ GPUdi() float GPUTRDRecoParam::getRPhiRes(float snp, float pull, int occupancy) 
   float resPull = mPullA * pull * pull + mPullB * pull; // parametrization as pol2 summed in quadrature
   float resOccupancy = mOccA * occupancy;               // parametrization as sqrt() summed in quadrature
   return (resIdeal * resIdeal + mRPhiC2 * (snp - mLorentzAngle) * (snp - mLorentzAngle) + resPull * resPull + resOccupancy);
+}
+
+GPUdi() float GPUTRDRecoParam::getDyLikelihood(float snp, float slope, int occupancy) const 
+{ 
+  // Gaussian + left exponential + right exponential
+  float nSigma = (slope - GPUTRDRecoParam::convertAngleToDy(snp)) / GPUTRDRecoParam::getDyRes(snp, occupancy);
+  float likelihood = CAMath::Exp(- 0.5f * nSigma * nSigma);
+  
+  // Normalization for the exponential is parametrized with respect to the Gaussian, it is smaller at lorentz angle
+  float expNorm = CAMath::Sqrt(mDyExpNormA + mDyExpNormC * (snp - mLorentzAngle) * (snp - mLorentzAngle));
+  if (slope < convertAngleToDy(snp)) {
+    // left tail in this case, larger tail for large positive snp
+    likelihood += expNorm * CAMath::Exp((mDyExpA + mDyExpC * (snp - mLorentzAngle)) * (slope - GPUTRDRecoParam::convertAngleToDy(snp)));
+  }
+  else {
+    // right tail, larger tail for large negative snp
+    likelihood += expNorm * CAMath::Exp(-(mDyExpA - mDyExpC * (snp - mLorentzAngle)) * (slope - GPUTRDRecoParam::convertAngleToDy(snp)));
+  }
+  
+  // Normalized such that likelihood is 1 when track angle and tracklet slope agree, and always lower than 1 otherwise (such that -log(likelihood) is always positive)
+  likelihood /= (1.f + expNorm);
+  return likelihood;
 }
 
 GPUdi() float GPUTRDRecoParam::getPileUpProbTracklet(int nBC, bool withChargeInfo, bool Q0, bool Q1) const

@@ -496,7 +496,14 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
   const int32_t nMaxChambersToSearch = 4;
 
   mDebug->SetGeneralInfo(mNEvents, mNTracks, iTrk, t->getPt());
+  
+  float sector0 = o2::math_utils::angle2Sector(trkWork->getAlpha());
+  
+        if (!AdjustSector(prop, trkWork)) {
 
+        return false;
+      }
+//LOGF(info, "start id: %d errTrkY: %f", (int)trkWork->getRefGlobalTrackIdRaw(), CAMath::Sqrt(trkWork->getSigmaY2()));
   for (int32_t iLayer = 0; iLayer < kNLayers; ++iLayer) {
     nCurrHypothesis = 0;
     bool isOK = false; // if at least one candidate could be propagated or the track was stopped this becomes true
@@ -534,7 +541,7 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
         }
         continue;
       }
-
+//LOGF(info, "prop id: %d, layer: %d errTrkY: %f", (int)trkWork->getRefGlobalTrackIdRaw(), iLayer, CAMath::Sqrt(trkWork->getSigmaY2()));
       // rotate track in new sector in case of sector crossing
       if (!AdjustSector(prop, trkWork)) {
         if (ENABLE_INFO) {
@@ -542,7 +549,7 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
         }
         continue;
       }
-
+//LOGF(info, "adj id: %d, layer: %d errTrkY: %f", (int)trkWork->getRefGlobalTrackIdRaw(), iLayer, CAMath::Sqrt(trkWork->getSigmaY2()));
       // check if track is findable
       if (IsGeoFindable(trkWork, iLayer, prop->getAlpha(), zShiftTrk)) {
         trkWork->setIsFindable(iLayer);
@@ -592,6 +599,8 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
             GPUWarning("Track parameter for track %i, x=%f at chamber %i x=%f in layer %i cannot be retrieved", iTrk, trkWork->getX(), currDet, mR[currDet], iLayer);
           }
         }
+
+        //LOGF(info, "id: %d, layer: %d errTrkY: %f", (int)trkWork->getRefGlobalTrackIdRaw(), iLayer, CAMath::Sqrt(trkWork->getSigmaY2()));
         // first propagate track to x of tracklet
         for (int32_t trkltIdx = glbTrkltIdxOffset + mTrackletIndexArray[trkltIdxOffset + currDet]; trkltIdx < glbTrkltIdxOffset + mTrackletIndexArray[trkltIdxOffset + currDet + 1]; ++trkltIdx) {
           if (CAMath::Abs(trkWork->getY() - spacePoints[trkltIdx].getY()) > roadY || CAMath::Abs(trkWork->getZ() + zShiftTrk - spacePoints[trkltIdx].getZ()) > roadZ) {
@@ -648,6 +657,8 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
           zPosCorr -= zShiftTrk; // shift tracklet instead of track in order to avoid having to do a re-fit for each collision
           float deltaY = yPosCorr - projY;
           float deltaZ = zPosCorr - projZ;
+          
+
 
           float trkltPosTmpYZ[2] = {yPosCorr, zPosCorr};
           float trkltCovTmp[3] = {0.f};
@@ -656,7 +667,9 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
             RecalcTrkltCov(tilt, trkWork->getSnp(), pad->GetRowSize(tracklets[trkltIdx].GetZbin()), (Param().rec.trd.useAngularPull == 2 ? angularPull : 0.f), nTrackletsChamber, trkltCovTmp);
             trkltCovTmp[0] += yAddErrPileUp2;
             float chi2 = prop->getPredictedChi2(trkltPosTmpYZ, trkltCovTmp);
-            if (Param().rec.trd.addDeflectionInChi2 && (trkWork->getSnp() < 1.f - 1e-6f) && (trkWork->getSnp() > -1.f + 1e-6f)) {
+            //if (currDet/30 != sector0 && chi2 < 12) LOGF(info, "track matching : id: %d layer %d trkPt: %f trkltY: %f trkY: %f %f errYtrklt: %f errYtrk: %f diff: %f chi2: %f alpha: %f X: %f", (int)trkWork->getRefGlobalTrackIdRaw(), iLayer, 1./trkWork->getQ2Pt(), yPosCorr, trkWork->getY(), projY, CAMath::Sqrt(trkltCovTmp[0]), CAMath::Sqrt(trkWork->getSigmaY2()), yPosCorr - projY, chi2, trkWork->getAlpha(), trkWork->getX());
+                      
+            if (Param().rec.trd.addDeflectionInChi2 >= 1 && (trkWork->getSnp() < 1.f - 1e-6f) && (trkWork->getSnp() > -1.f + 1e-6f)) {
               // we add the slope in the chi2 calculation
               float trkltCovTmpWithDy[6] = {trkltCovTmp[0], trkltCovTmp[1], trkltCovTmp[2], 0.f, 0.f, 0.f};
               RecalcTrkltCovDy(tilt, trkWork->getSnp(), (Param().rec.trd.useAngularPull == 2 ? angularPull : 0.f), nTrackletsChamber, trkltCovTmpWithDy);
@@ -667,6 +680,10 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
               // For now, dy uncertainty parametrization also includes track uncertainty, so no need to add additional uncertainty
               if (InvertCov(trkltCovTmpWithDy)) {
                 float deltaDy = spacePoints[trkltIdx].getDy() + dyTiltCorr - mRecoParam->convertAngleToDy(trkWork->getSnp());
+                if (Param().rec.trd.addDeflectionInChi2 == 2) {
+                  // In this case we take into account the full likelihood, so we replace (deltaDy/sigmaDy)^2 by -2*ln(likelihood), which is the same in the default Gaussian case
+                  deltaDy = mRecoParam->getDyRes(trkWork->getSnp(), nTrackletsChamber) * CAMath::Sqrt(-2.f * CAMath::Log(mRecoParam->getDyLikelihood(trkWork->getSnp(), spacePoints[trkltIdx].getDy() + dyTiltCorr, nTrackletsChamber)));
+                }
                 chi2 = deltaY * trkltCovTmpWithDy[0] * deltaY + 2 * deltaY * trkltCovTmpWithDy[1] * deltaZ + 2 * deltaY * trkltCovTmpWithDy[3] * deltaDy + deltaZ * trkltCovTmpWithDy[2] * deltaZ + 2 * deltaZ * trkltCovTmpWithDy[4] * deltaDy + deltaDy * trkltCovTmpWithDy[5] * deltaDy;
               }
             }
