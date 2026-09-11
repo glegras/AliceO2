@@ -195,7 +195,7 @@ AddOptionRTC(nTrackletsMin, uint8_t, 3, "", 0, "Tracks with less attached trackl
 AddOptionRTC(matCorrType, uint8_t, 2, "", 0, "Material correction to use: 0 - none, 1 - TGeo, 2 - matLUT")
 AddOptionRTC(pileupFwdNBC, uint8_t, 70, "", 0, "Post-trigger Pile-up integration time in BCs")
 AddOptionRTC(pileupBwdNBC, uint8_t, 130, "", 0, "Pre-trigger Pile-up integration time in BCs")
-AddOptionRTC(useAngularPull, uint8_t, 1, "", 0, "0 = don't use angular pull; 1 = additional error based on angular pull for refit only; 2 = add error also for chi2")
+AddOptionRTC(useAngularPull, uint8_t, 3, "", 0, "0 = don't use angular pull; 1 = additional error based on angular pull for refit only; 2 = add error also for chi2; 3 and 4 = correction of the average position based on angular pull")
 AddHelp("help", 'h')
 EndConfig()
 

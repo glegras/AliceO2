@@ -49,8 +49,9 @@ class GPUTRDRecoParam
   GPUd() float getRPhiRes(float snp, float pull = 0.f, int occupancy = 0) const;
   GPUd() float getDyRes(float snp, int occupancy = 0) const { return mDyA2 + mDyC2 * (snp - mLorentzAngle) * (snp - mLorentzAngle) + mOccDyA * occupancy; } // a^2 + c^2 * (snp - b)^2
   GPUd() float convertAngleToDy(float snp) const { return 3.f * snp / CAMath::Sqrt(1 - snp * snp); }                                                        // when calibrated, sin(phi) = (dy / xDrift) / sqrt(1+(dy/xDrift)^2) works well
-  GPUd() float getDyLikelihood(float snp, float slope, int occupancy = 0) const;
-  GPUd() float getCorrYDy() const { return mCorrYDy; }
+  GPUd() double getDyLikelihood(float snp, float slope, int occupancy = 0) const;
+  GPUd() double getZLikelihood(float deltaZ, float padLength, float sigmaZtrk) const;
+  GPUd() float getCorrYDy(float snp) const { return CAMath::Sqrt(mCorrYDyA + mCorrYDyC * (snp - mLorentzAngle) * (snp - mLorentzAngle)); }
   GPUd() float getPileUpProbTracklet(int nBC, bool withChargeInfo, bool Q0 = true, bool Q1 = true) const;
   GPUd() float getPileUpProbTrack(int nBC, std::array<int, 6> Q0, std::array<int, 6> Q1) const;
 
@@ -71,8 +72,9 @@ class GPUTRDRecoParam
   // angle
   float mDyA2{1.225e-3f}; ///< parameterization for tracklet angular resolution
   float mDyC2{0.f};       ///< parameterization for tracklet angular resolution
-  // variation in y when dy variates by one sigma (= cov / sigma_dy = corr * sigma_y) (valid within 2sigma of dy)
-  float mCorrYDy{0.13f};
+  // variation in y when dy variates by one sigma (= cov / sigma_dy = corr * sigma_y) for tracklet (valid within ~[-0.6,0.6] of dy_trklt-dy_trk)
+  float mCorrYDyA{7.8e-4f};
+  float mCorrYDyC{2.2e-2f};
   // error parametrization vs angular pull (pol2)
   float mPullA{6.8e-3f};
   float mPullB{0.049f};
@@ -134,14 +136,13 @@ GPUdi() float GPUTRDRecoParam::getRPhiRes(float snp, float pull, int occupancy) 
   return (resIdeal * resIdeal + mRPhiC2 * (snp - mLorentzAngle) * (snp - mLorentzAngle) + resPull * resPull + resOccupancy);
 }
 
-GPUdi() float GPUTRDRecoParam::getDyLikelihood(float snp, float slope, int occupancy) const 
+GPUdi() double GPUTRDRecoParam::getDyLikelihood(float snp, float slope, int occupancy) const 
 { 
   // Gaussian + left exponential + right exponential
-  float nSigma = (slope - GPUTRDRecoParam::convertAngleToDy(snp)) / GPUTRDRecoParam::getDyRes(snp, occupancy);
-  float likelihood = CAMath::Exp(- 0.5f * nSigma * nSigma);
+  double likelihood = CAMath::Exp(- 0.5f * (slope - GPUTRDRecoParam::convertAngleToDy(snp)) * (slope - GPUTRDRecoParam::convertAngleToDy(snp)) / GPUTRDRecoParam::getDyRes(snp, occupancy));
   
   // Normalization for the exponential is parametrized with respect to the Gaussian, it is smaller at lorentz angle
-  float expNorm = CAMath::Sqrt(mDyExpNormA + mDyExpNormC * (snp - mLorentzAngle) * (snp - mLorentzAngle));
+  double expNorm = CAMath::Sqrt(mDyExpNormA + mDyExpNormC * (snp - mLorentzAngle) * (snp - mLorentzAngle));
   if (slope < convertAngleToDy(snp)) {
     // left tail in this case, larger tail for large positive snp
     likelihood += expNorm * CAMath::Exp((mDyExpA + mDyExpC * (snp - mLorentzAngle)) * (slope - GPUTRDRecoParam::convertAngleToDy(snp)));
@@ -154,6 +155,14 @@ GPUdi() float GPUTRDRecoParam::getDyLikelihood(float snp, float slope, int occup
   // Normalized such that likelihood is 1 when track angle and tracklet slope agree, and always lower than 1 otherwise (such that -log(likelihood) is always positive)
   likelihood /= (1.f + expNorm);
   return likelihood;
+}
+
+GPUdi() double GPUTRDRecoParam::getZLikelihood(float deltaZ, float padLength, float sigmaZtrk) const 
+{
+  // logistic function as approximation of convolution between uniform tracklet Z and gaussian track, depends on sqrt(3)/pi times the track resolution
+  // normalized so that maximum is 1
+  double lmax = 1.f/(1.f + CAMath::Exp(- 0.5f * padLength / 0.5513f / sigmaZtrk)) - 1.f/(1.f + CAMath::Exp(0.5f * padLength / 0.5513f / sigmaZtrk));
+  return 1.f / lmax / (1.f + CAMath::Exp((deltaZ - 0.5f * padLength) / 0.5513f / sigmaZtrk)) - 1.f / lmax / (1.f + CAMath::Exp((deltaZ + 0.5f * padLength) / 0.5513f / sigmaZtrk));
 }
 
 GPUdi() float GPUTRDRecoParam::getPileUpProbTracklet(int nBC, bool withChargeInfo, bool Q0, bool Q1) const
