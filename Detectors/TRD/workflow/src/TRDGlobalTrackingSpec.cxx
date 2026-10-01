@@ -399,7 +399,9 @@ void TRDGlobalTracking::run(ProcessingContext& pc)
   // load ITS-TPC matched tracks
   for (unsigned int iTrk = 0; iTrk < mChainTracking->mIOPtrs.nTracksTPCITSO2; ++iTrk) {
     const auto& trkITSTPC = mChainTracking->mIOPtrs.tracksTPCITSO2[iTrk];
+    const auto& trkTPC = mChainTracking->mIOPtrs.outputTracksTPCO2[trkITSTPC.getRefTPC()];
     GPUTRDTracker::HelperTrackAttributes trkAttribs;
+    trkAttribs.mDEdxTotTPC = trkTPC.getdEdx().dEdxTotTPC;
     trkAttribs.mTime = trkITSTPC.getTimeMUS().getTimeStamp();
     trkAttribs.mTimeAddMax = trkITSTPC.getTimeMUS().getTimeStampError() * mRec->GetParam().rec.trd.nSigmaTerrITSTPC + mRec->GetParam().rec.trd.addTimeRoadITSTPC;
     trkAttribs.mTimeSubMax = trkITSTPC.getTimeMUS().getTimeStampError() * mRec->GetParam().rec.trd.nSigmaTerrITSTPC + mRec->GetParam().rec.trd.addTimeRoadITSTPC;
@@ -420,6 +422,7 @@ void TRDGlobalTracking::run(ProcessingContext& pc)
     }
     const auto& trkTpc = mChainTracking->mIOPtrs.outputTracksTPCO2[iTrk];
     GPUTRDTracker::HelperTrackAttributes trkAttribs;
+    trkAttribs.mDEdxTotTPC = trkTpc.getdEdx().dEdxTotTPC;
     trkAttribs.mTime = trkTpc.getTime0() * mTPCTBinMUS - mTPCTDriftOffset; // account for the eventual time bias for TPC tracks time
     trkAttribs.mTimeAddMax = trkTpc.getDeltaTFwd() * mTPCTBinMUS;
     trkAttribs.mTimeSubMax = trkTpc.getDeltaTBwd() * mTPCTBinMUS;

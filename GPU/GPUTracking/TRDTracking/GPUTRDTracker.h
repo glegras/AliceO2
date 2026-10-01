@@ -80,9 +80,10 @@ class GPUTRDTracker_t : public GPUProcessor
     float mTimeAddMax; // max. time that can be added to this track seed in us
     float mTimeSubMax; // max. time that can be subtracted to this track seed in us
     int16_t mSide;     // -1 : A-side, +1 : C-side (relevant only for TPC-only tracks)
+    float mDEdxTotTPC; // dEdx tot from TPC
     GPUd() float GetTimeMin() const { return mTime - mTimeSubMax; }
     GPUd() float GetTimeMax() const { return mTime + mTimeAddMax; }
-    GPUd() HelperTrackAttributes() : mTime(-1.f), mTimeAddMax(0.f), mTimeSubMax(0.f), mSide(0) {}
+    GPUd() HelperTrackAttributes() : mTime(-1.f), mTimeAddMax(0.f), mTimeSubMax(0.f), mSide(0), mDEdxTotTPC(-1.f) {}
   };
 
   struct Hypothesis {

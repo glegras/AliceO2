@@ -51,7 +51,7 @@ class GPUTRDRecoParam
   GPUd() float convertAngleToDy(float snp) const { return 3.f * snp / CAMath::Sqrt(1 - snp * snp); }                                                        // when calibrated, sin(phi) = (dy / xDrift) / sqrt(1+(dy/xDrift)^2) works well
   GPUd() double getDyLikelihood(float snp, float slope, int occupancy = 0) const;
   GPUd() double getZLikelihood(float deltaZ, float padLength, float sigmaZtrk) const;
-  GPUd() float getCorrYDy(float snp) const { return CAMath::Sqrt(mCorrYDyA + mCorrYDyC * (snp - mLorentzAngle) * (snp - mLorentzAngle)); }
+  GPUd() float getCorrYDy(float snp) const { return ((snp < mLorentzAngle) ? CAMath::Sqrt(mCorrYDyA + mCorrYDyCM * (snp - mLorentzAngle) * (snp - mLorentzAngle)) : CAMath::Sqrt(mCorrYDyA + mCorrYDyCP * (snp - mLorentzAngle) * (snp - mLorentzAngle))); }
   GPUd() float getPileUpProbTracklet(int nBC, bool withChargeInfo, bool Q0 = true, bool Q1 = true) const;
   GPUd() float getPileUpProbTrack(int nBC, std::array<int, 6> Q0, std::array<int, 6> Q1) const;
 
@@ -74,7 +74,8 @@ class GPUTRDRecoParam
   float mDyC2{0.3f};  ///< parameterization for tracklet angular resolution
   // variation in y when dy variates by one sigma (= cov / sigma_dy = corr * sigma_y) for tracklet (valid within ~[-0.6,0.6] of dy_trklt-dy_trk)
   float mCorrYDyA{9e-4f};
-  float mCorrYDyC{1.5e-2f};
+  float mCorrYDyCM{1.1e-2f};
+  float mCorrYDyCP{2.8e-2f};
   // error parametrization vs angular pull (pol2)
   float mPullA{2.8e-3f};
   float mPullB{0.040f};

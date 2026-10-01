@@ -494,6 +494,8 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
   float roadY = 0.f;
   float roadZ = 0.f;
   const int32_t nMaxChambersToSearch = 4;
+  
+  int sectorTPC = o2::math_utils::angle2Sector(trkWork->getAlpha());
 
   mDebug->SetGeneralInfo(mNEvents, mNTracks, iTrk, t->getPt());
 
@@ -600,6 +602,28 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
             // although the radii of space points and tracks may differ by ~ few mm the roads are large enough to allow no efficiency loss by this cut
             continue;
           }
+          
+          if (Param().rec.trd.tagBadTrackletCharges == 1) {
+            if (mTrackAttribs[iTrk].mDEdxTotTPC <= 1e-6f) {
+              LOGF(warn, "This track has no dEdxTot from TPC, cannot do tagging: %f", mTrackAttribs[iTrk].mDEdxTotTPC);
+            }
+            else {
+              float Q0ratio = tracklets[trkltIdx].GetQ0() / mTrackAttribs[iTrk].mDEdxTotTPC;
+              float Q1ratio = tracklets[trkltIdx].GetQ1() / mTrackAttribs[iTrk].mDEdxTotTPC;
+              float Q2ratio = tracklets[trkltIdx].GetQ2() / mTrackAttribs[iTrk].mDEdxTotTPC;
+              // TODO: optimize the tagging selections
+              if (Q0ratio > 2.f && tracklets[trkltIdx].GetQ1() != 0 && Q1ratio < 1.5f) {
+                continue;
+              }
+              if (((tracklets[trkltIdx].GetQ0() != 0 && Q0ratio < 0.8f) || (Q1ratio > 0.1f && Q1ratio < 0.7f)) && Q1ratio > 2.f) {
+                continue;
+              }
+              if (((Q0ratio > 0.3f && Q0ratio < 1.5f) || (Q1ratio > 0.3f && Q1ratio < 2.5f)) && Q2ratio > 1.1f) {
+                continue;
+              }
+            }
+          }
+          
           float projY, projZ;
           prop->getPropagatedYZ(spacePoints[trkltIdx].getX(), projY, projZ);
           // correction for tilted pads (only applied if deltaZ < lPad && track z err << lPad)
@@ -664,13 +688,24 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
 
           float deltaY = yPosCorr - projY;
           float deltaZ = zPosCorr - projZ;
+          
+          if (sectorTPC != currSec) {
+            // we correct for average bias for tracks crossing sectors during matching
+            // we also add this correction as an error
+            int direction = (currSec > sectorTPC ? 1 : -1);
+            if (CAMath::Abs(currSec - sectorTPC) > 9) {
+              // crossed boundary between sector 17 and 0
+              direction *= -1;
+            }
+            yPosCorr -= Param().rec.trd.corrBiasTracksCrossingTRD * direction;
+          }
 
           float trkltPosTmpYZ[2] = {yPosCorr, zPosCorr};
           float trkltCovTmp[3] = {0.f};
           if ((CAMath::Abs(deltaY) < roadY) && (CAMath::Abs(deltaZ) < roadZ)) { // TODO: check if this is still necessary after the cut before propagation of track
             // tracklet is in window: get predicted chi2 for update and store tracklet index if best guess
             RecalcTrkltCov(tilt, trkWork->getSnp(), pad->GetRowSize(tracklets[trkltIdx].GetZbin()), (Param().rec.trd.useAngularPull == 2 || Param().rec.trd.useAngularPull == 4 ? angularPull : 0.f), nTrackletsChamber, trkltCovTmp);
-            trkltCovTmp[0] += yAddErrPileUp2;
+            trkltCovTmp[0] += yAddErrPileUp2 /*+ (sectorTPC != currSec ? Param().rec.trd.corrBiasTracksCrossingTRD * Param().rec.trd.corrBiasTracksCrossingTRD : 0.)*/;
             float chi2 = prop->getPredictedChi2(trkltPosTmpYZ, trkltCovTmp);
 
             if (Param().rec.trd.addDeflectionInChi2 >= 1 && (trkWork->getSnp() < 1.f - 1e-6f) && (trkWork->getSnp() > -1.f + 1e-6f)) {

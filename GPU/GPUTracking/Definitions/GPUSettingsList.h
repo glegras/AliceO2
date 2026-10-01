@@ -189,6 +189,8 @@ AddOptionRTC(matCorrType, uint8_t, 2, "", 0, "Material correction to use: 0 - no
 AddOptionRTC(pileupFwdNBC, uint8_t, 70, "", 0, "Post-trigger Pile-up integration time in BCs")
 AddOptionRTC(pileupBwdNBC, uint8_t, 130, "", 0, "Pre-trigger Pile-up integration time in BCs")
 AddOptionRTC(useAngularPull, uint8_t, 3, "", 0, "0 = don't use angular pull; 1 = additional error based on angular pull for refit only; 2 = add error also for chi2; 3 and 4 = correction of the average position based on angular pull")
+AddOptionRTC(corrBiasTracksCrossingTRD, float, 0.6f, "", 0, "correction (for matching only) in cm of the bias in the residuals for tracks crossing sector within TRD")
+AddOptionRTC(tagBadTrackletCharges, uint8_t, 0, "", 0, "tagging fake/overlap tracklet using Q0 Q1 Q2, 0: do nothing, 1: reject them, 2: put additional errors during refit")
 AddHelp("help", 'h')
 EndConfig()
 
