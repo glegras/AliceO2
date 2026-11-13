@@ -54,6 +54,7 @@ class GPUTRDRecoParam
   GPUd() float getCorrYDy(float snp) const { return ((snp < mLorentzAngle) ? CAMath::Sqrt(mCorrYDyA + mCorrYDyCM * (snp - mLorentzAngle) * (snp - mLorentzAngle)) : CAMath::Sqrt(mCorrYDyA + mCorrYDyCP * (snp - mLorentzAngle) * (snp - mLorentzAngle))); }
   GPUd() float getPileUpProbTracklet(int nBC, bool withChargeInfo, bool Q0 = true, bool Q1 = true) const;
   GPUd() float getPileUpProbTrack(int nBC, std::array<int, 6> Q0, std::array<int, 6> Q1) const;
+  GPUd() bool getIsGoodTrackletCharges(int Q0, int Q1, int Q2, float TPCdEdxTot) const;
 
   /// Get tracklet z correction coefficient for track-eta based corraction
   GPUd() float getZCorrCoeffNRC() const { return mZCorrCoefNRC; }
@@ -252,6 +253,26 @@ GPUdi() float GPUTRDRecoParam::getPileUpProbTrack(int nBC, std::array<int, 6> Q0
   }
 
   return probTrack;
+}
+
+GPUdi() bool GPUTRDRecoParam::getIsGoodTrackletCharges(int Q0, int Q1, int Q2, float TPCdEdxTot) const
+{
+  // tag bad tracklet candidate (overlap, fakes, ...) depending on correlations between Q0,Q1,Q2 and TPC dEdxTot
+
+  float Q0ratio = Q0 / TPCdEdxTot;
+  float Q1ratio = Q1 / TPCdEdxTot;
+  float Q2ratio = Q2 / TPCdEdxTot;
+  // TODO: optimize the tagging selections
+  if (Q0ratio > 2.f && Q1 != 0 && Q1ratio < 1.5f) {
+    return false;
+  }
+  if (((Q0 != 0 && Q0ratio < 0.8f) || (Q1ratio > 0.1f && Q1ratio < 0.7f)) && Q1ratio > 2.f) {
+    return false;
+  }
+  if (((Q0ratio > 0.3f && Q0ratio < 1.5f) || (Q1ratio > 0.3f && Q1ratio < 2.5f)) && Q2ratio > 1.1f) {
+    return false;
+  }
+  return true;
 }
 
 } // namespace gpu

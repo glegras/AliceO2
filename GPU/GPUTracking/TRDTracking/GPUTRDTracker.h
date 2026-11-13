@@ -70,9 +70,8 @@ class GPUTRDTracker_t : public GPUProcessor
                         kNStacks = 5,
                         kNSectors = 18,
                         kNChambers = 540,
-                        kNPadRows = 16,
-                        kNPadColumns = 144,
-                        kNPads = 1244160 };
+                        kNMCMRowsPerChamber = 16,
+                        kNMCMRows = 8640};
 
   struct HelperTrackAttributes {
     // additional TRD track attributes which are transient
@@ -143,12 +142,13 @@ class GPUTRDTracker_t : public GPUProcessor
     mNFT0BC = n;
   }
   GPUd() void SetChamberStatus(int iDet, bool status) { mChamberStatus[iDet] = status; }
-  // GPUd() void SetPadStatus(int iPad, bool status) { mPadStatus[iPad] = status; }
+  GPUd() void SetMCMStatus(int iMCM, uint8_t status) { mMCMStatus[iMCM] = status; }
 
   GPUd() bool GetIsDebugOutputOn() const { return mDebugOutput; }
   GPUd() float GetMaxEta() const { return mMaxEta; }
   GPUd() int32_t GetNCandidates() const { return mNCandidates; }
   GPUd() float GetRoadZ() const { return mRoadZ; }
+  GPUd() bool GetIsMCMMasked(int chamber, int row, int col) { return (mMCMStatus[kNMCMRowsPerChamber * chamber + row] & (uint8_t(1) << col)); }
 
   // output
   GPUd() int32_t NTracks() const { return mNTracks; }
@@ -197,7 +197,7 @@ class GPUTRDTracker_t : public GPUProcessor
   float mTPCTDriftOffset;                                        // TPC drift time additive offset
   GPUTRDTrackerDebug<TRDTRK>* mDebug;                            // debug output
   bool mChamberStatus[kNChambers] = {};                          // good (0) or bad (1) chamber from the CCDB, used for determining whether a track is findable
-  // bool mPadStatus[kNPads] = {};                               // whether pad is masked or not in hardware, from the CCDB, used for determining if a track is findable
+  uint8_t mMCMStatus[kNMCMRows] = {};                            // whether MCM is masked or not in hardware, from the CCDB, used for determining if a track is findable
 };
 } // namespace o2::gpu
 

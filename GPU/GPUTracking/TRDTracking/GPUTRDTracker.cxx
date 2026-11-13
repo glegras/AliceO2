@@ -316,11 +316,31 @@ GPUd() int32_t GPUTRDTracker_t<TRDTRK, PROP>::GetCollisionIDs(int32_t iTrk, int3
   // and the number of valid entries in the array is returned
   //--------------------------------------------------------------------
   int32_t nColls = 0;
+  int32_t currentBCID = 0;
   for (uint32_t iColl = 0; iColl < GetConstantMem()->ioPtrs.nTRDTriggerRecords; ++iColl) {
     if (GetConstantMem()->ioPtrs.trdTrigRecMask && GetConstantMem()->ioPtrs.trdTrigRecMask[iColl] == 0) {
       continue;
     }
-    if (GetConstantMem()->ioPtrs.trdTriggerTimes[iColl] > mTrackAttribs[iTrk].GetTimeMin() && GetConstantMem()->ioPtrs.trdTriggerTimes[iColl] < mTrackAttribs[iTrk].GetTimeMax()) {
+    // Adding time of furthest pile-up for this trigger as an additional safety margin for considering the track
+    int32_t nBCBwd = 0;
+    int32_t nBCFwd = 0;
+
+    for (int32_t iBC = currentBCID; iBC < mNFT0BC; iBC++) {
+      int32_t deltaBC = CAMath::Round(mFT0TriggeredBC[iBC] - GetConstantMem()->ioPtrs.trdTriggerTimes[collisionId] / o2::constants::lhc::LHCBunchSpacingMUS);
+      LOGF(info, "trigger time %d  current bc %d deltaBC %d", CAMath::Round(GetConstantMem()->ioPtrs.trdTriggerTimes[collisionId] / o2::constants::lhc::LHCBunchSpacingMUS), mFT0TriggeredBC[iBC], deltaBC);
+      if (nBCBwd == 0 && deltaBC > mRecoParam->getPileUpRangeBefore() && deltaBC < 0) {
+        nBCBwd = deltaBC;
+      }
+      if (deltaBC < mRecoParam->getPileUpRangeAfter() && deltaBC > 0) {
+        nBCFwd = deltaBC;
+      }
+      if (deltaBC >= mRecoParam->getPileUpRangeAfter()) {
+        currentBCID = iBC;
+        break;
+      }
+    }
+    LOGF(info, "backward %d forward %d", nBCBwd, nBCFwd);
+    if ((GetConstantMem()->ioPtrs.trdTriggerTimes[iColl] + nBCFwd * o2::constants::lhc::LHCBunchSpacingMUS > mTrackAttribs[iTrk].GetTimeMin()) && (GetConstantMem()->ioPtrs.trdTriggerTimes[iColl] + nBCBwd * o2::constants::lhc::LHCBunchSpacingMUS < mTrackAttribs[iTrk].GetTimeMax())) {
       if (nColls == 20) {
         GPUError("Found too many collision candidates for track with tMin(%f) and tMax(%f)", mTrackAttribs[iTrk].GetTimeMin(), mTrackAttribs[iTrk].GetTimeMax());
         return nColls;
@@ -495,7 +515,8 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
   float roadZ = 0.f;
   const int32_t nMaxChambersToSearch = 4;
   
-  int sectorTPC = o2::math_utils::angle2Sector(trkWork->getAlpha());
+  // track is already propagated at the TPC outer radius
+  int sectorTPC = GetSector(trkWork->getAlpha());
 
   mDebug->SetGeneralInfo(mNEvents, mNTracks, iTrk, t->getPt());
 
@@ -542,6 +563,15 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
         if (ENABLE_INFO) {
           GPUInfo("Adjusting sector failed for track %i candidate %i in layer %i", iTrk, iCandidate, iLayer);
         }
+        continue;
+      }
+      
+      if (Param().rec.trd.skipAfterCrossingSector == 1 && GetSector(trkWork->getAlpha()) != sectorTPC) {
+        // in this case, we skip the candidate and it remains non-findable
+        // we insert the no update hypothesis
+        Hypothesis hypoNoUpdate(trkWork->getNlayersFindable(), iCandidate, -1, trkWork->getChi2() + Param().rec.trd.penaltyChi2);
+        InsertHypothesis(hypoNoUpdate, nCurrHypothesis, hypothesisIdxOffset);
+        isOK = true;
         continue;
       }
 
@@ -605,20 +635,10 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
           
           if (Param().rec.trd.tagBadTrackletCharges == 1) {
             if (mTrackAttribs[iTrk].mDEdxTotTPC <= 1e-6f) {
-              LOGF(warn, "This track has no dEdxTot from TPC, cannot do tagging: %f", mTrackAttribs[iTrk].mDEdxTotTPC);
+              LOGF(warn, "This track has no dEdxTot from TPC, cannot do tagging based on charge: %f", mTrackAttribs[iTrk].mDEdxTotTPC);
             }
             else {
-              float Q0ratio = tracklets[trkltIdx].GetQ0() / mTrackAttribs[iTrk].mDEdxTotTPC;
-              float Q1ratio = tracklets[trkltIdx].GetQ1() / mTrackAttribs[iTrk].mDEdxTotTPC;
-              float Q2ratio = tracklets[trkltIdx].GetQ2() / mTrackAttribs[iTrk].mDEdxTotTPC;
-              // TODO: optimize the tagging selections
-              if (Q0ratio > 2.f && tracklets[trkltIdx].GetQ1() != 0 && Q1ratio < 1.5f) {
-                continue;
-              }
-              if (((tracklets[trkltIdx].GetQ0() != 0 && Q0ratio < 0.8f) || (Q1ratio > 0.1f && Q1ratio < 0.7f)) && Q1ratio > 2.f) {
-                continue;
-              }
-              if (((Q0ratio > 0.3f && Q0ratio < 1.5f) || (Q1ratio > 0.3f && Q1ratio < 2.5f)) && Q2ratio > 1.1f) {
+              if (!mRecoParam->getIsGoodTrackletCharges(tracklets[trkltIdx].GetQ0(), tracklets[trkltIdx].GetQ1(), tracklets[trkltIdx].GetQ2(), mTrackAttribs[iTrk].mDEdxTotTPC)) {
                 continue;
               }
             }
@@ -688,24 +708,13 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
 
           float deltaY = yPosCorr - projY;
           float deltaZ = zPosCorr - projZ;
-          
-          if (sectorTPC != currSec) {
-            // we correct for average bias for tracks crossing sectors during matching
-            // we also add this correction as an error
-            int direction = (currSec > sectorTPC ? 1 : -1);
-            if (CAMath::Abs(currSec - sectorTPC) > 9) {
-              // crossed boundary between sector 17 and 0
-              direction *= -1;
-            }
-            yPosCorr -= Param().rec.trd.corrBiasTracksCrossingTRD * direction;
-          }
 
           float trkltPosTmpYZ[2] = {yPosCorr, zPosCorr};
           float trkltCovTmp[3] = {0.f};
           if ((CAMath::Abs(deltaY) < roadY) && (CAMath::Abs(deltaZ) < roadZ)) { // TODO: check if this is still necessary after the cut before propagation of track
             // tracklet is in window: get predicted chi2 for update and store tracklet index if best guess
             RecalcTrkltCov(tilt, trkWork->getSnp(), pad->GetRowSize(tracklets[trkltIdx].GetZbin()), (Param().rec.trd.useAngularPull == 2 || Param().rec.trd.useAngularPull == 4 ? angularPull : 0.f), nTrackletsChamber, trkltCovTmp);
-            trkltCovTmp[0] += yAddErrPileUp2 /*+ (sectorTPC != currSec ? Param().rec.trd.corrBiasTracksCrossingTRD * Param().rec.trd.corrBiasTracksCrossingTRD : 0.)*/;
+            trkltCovTmp[0] += yAddErrPileUp2;
             float chi2 = prop->getPredictedChi2(trkltPosTmpYZ, trkltCovTmp);
 
             if (Param().rec.trd.addDeflectionInChi2 >= 1 && (trkWork->getSnp() < 1.f - 1e-6f) && (trkWork->getSnp() > -1.f + 1e-6f)) {
@@ -734,7 +743,7 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
               if (InvertCov(trkltCovTmpWithDy)) {
                 float deltaDy = spacePoints[trkltIdx].getDy() + dyTiltCorr - mRecoParam->convertAngleToDy(trkWork->getSnp());
                 if (Param().rec.trd.addDeflectionInChi2 == 2 || Param().rec.trd.addDeflectionInChi2 == 3) {
-                  // In this case we take into account the full likelihood, so we replace (deltaDy/sigmaDy)^2 by -2*ln(likelihood), which is the same in the default Gaussian case
+      getIsGoodTrackletCharges            // In this case we take into account the full likelihood, so we replace (deltaDy/sigmaDy)^2 by -2*ln(likelihood), which is the same in the default Gaussian case
                   double likelihood = mRecoParam->getDyLikelihood(trkWork->getSnp(), spacePoints[trkltIdx].getDy() + dyTiltCorr, nTrackletsChamber);
                   if (likelihood < 1e-6f) {
                     continue; // likelihood of 1e-6 is equivalent to 5 sigma deviation, so we can safely cut it to avoid numerical instability in log calculation
@@ -752,7 +761,6 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
                 chi2 = deltaY * trkltCovTmpWithDy[0] * deltaY + 2 * deltaY * trkltCovTmpWithDy[1] * deltaZ + 2 * deltaY * trkltCovTmpWithDy[3] * deltaDy + deltaZ * trkltCovTmpWithDy[2] * deltaZ + 2 * deltaZ * trkltCovTmpWithDy[4] * deltaDy + deltaDy * trkltCovTmpWithDy[5] * deltaDy;
               }
             }
-            // TODO cut on angular pull should be made stricter when proper v-drift calibration for the TRD tracklets is implemented
             if ((chi2 > Param().rec.trd.maxChi2) || (Param().rec.trd.applyDeflectionCut && CAMath::Abs(angularPull) > 4)) {
               continue;
             }
@@ -1355,12 +1363,11 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::IsGeoFindable(const TRDTRK* t, const 
   }
 
   // reject tracks if the corresponding pad and neighboring pads (to take into account track uncertainty and charge sharing with neighbours) are masked
-  /*int32_t padrow = pp->GetPadRowNumber(zTrk);
+  int32_t padrow = pp->GetPadRowNumber(zTrk);
   int32_t padcol = pp->GetPadColNumber(t->getY());
-  int32_t idxPad = det * kNPadColumns * kNPadRows + padcol * kNPadRows + padrow;
-  if (padrow != -1 && padcol != -1 && mPadStatus[idxPad] && (padrow == 0 || mPadStatus[idxPad - kNPadRows]) && (padrow == kNPadRows - 1 || mPadStatus[idxPad + kNPadRows])) {
+  if (GetIsMCMMasked(det, padrow, padcol)) {
     return false;
-  }*/
+  }
 
   return true;
 }
